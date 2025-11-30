@@ -1,182 +1,285 @@
-# Code Compiler (demo, local-only)
+# Online Code Runner
 
-Двухсервисный прототип для выполнения пользовательского кода через WebSocket:
+Интерактивный онлайн-редактор кода с серверным выполнением в изолированных Docker-контейнерах.
 
-- **frontend** — Next.js 15 (React 19): интерфейс редактора кода.
-- **backend** — Node.js + `ws`: принимает код по WebSocket, выполняет его и возвращает вывод.
-- Запуск локально через Docker Compose или по отдельности (npm). Прод и безопасность **не цель** этого репозитория — это демо.
+Пользователь пишет код в браузере (JS / Python / C++ / Java), нажимает **Run**, код уезжает на сервер, там в отдельном контейнере компилируется/исполняется, результат и ошибки возвращаются в интерфейс.  
+Ввод с клавиатуры (`stdin`, например `input()` в Python) тоже поддерживается.
 
-> Внимание: бэкенд исполняет произвольный код. Не публикуйте это в интернет, не запускайте на продовых машинах и не давайте доступ незнакомым. Демонстрационный проект только для локальной среды.
+---
+
+## Основные возможности
+
+- Выполнение кода в **отдельном Docker-контейнере** для каждого запуска:
+  - отключённая сеть (`--network none`);
+  - лимит по памяти, CPU и количеству процессов;
+  - контейнер удаляется сразу после завершения (`--rm`).
+- Поддерживаемые языки:
+  - **JavaScript** (Node.js)
+  - **Python 3**
+  - **C++ (G++ / C++17)**
+  - **Java 17**
+- Поддержка **stdin**:
+  - отдельное текстовое поле для ввода;
+  - ввод прокидывается в контейнер через STDIN;
+  - работает с `input()` в Python, `std::cin` в C++, `Scanner` в Java и т.п.
+- WebSocket-API:
+  - фронтенд общается с backend по WebSocket;
+  - протокол простой: JSON `{ language, code, stdin }`.
+- Фронтенд:
+  - Next.js + React;
+  - редактор кода на базе CodeMirror;
+  - отдельные поля: код, stdin, вывод.
 
 ---
 
 ## Стек
-- **Frontend:** Next.js 15, React 19, CodeMirror
-- **Backend:** Node 20, TypeScript, `ws`
-- **Инфра:** Docker (multi-stage), Docker Compose
+
+- **Frontend**
+  - Next.js
+  - React
+  - CodeMirror (`@uiw/react-codemirror`)
+- **Backend**
+  - Node.js
+  - TypeScript
+  - `ws` (WebSocket-сервер)
+- **Инфраструктура**
+  - Docker / Docker Compose
+  - Отдельный `runner`-образ с установленными:
+    - Node.js
+    - Python 3
+    - G++ (C++17)
+    - OpenJDK 17
 
 ---
 
-## Структура проекта
-```
-code_compiler/
-├─ frontend/                # Next.js приложение
-│  ├─ app/                  # маршруты/страницы
-│  ├─ components/           # компоненты
-│  ├─ lib/                  # утилиты, ws-клиент
-│  ├─ public/
-│  ├─ package.json
-│  └─ Dockerfile
-├─ backend/                 # Node.js WebSocket сервер
-│  ├─ src/
-│  │  ├─ server.ts          # HTTP + WS на одном порту, /healthz
-│  │  └─ lib/executor/      # исполнение кода (spawn)
-│  ├─ tsconfig.json
-│  ├─ package.json
-│  └─ Dockerfile
-└─ docker-compose.yml
+## Архитектура
+
+Сервисы в `docker-compose.yml`:
+
+- `web`  
+  Next.js фронтенд, отдаёт UI и открывает WebSocket-подключение к `api`.
+
+- `api`  
+  WebSocket-сервер:
+  - принимает JSON `{ language, code, stdin }`;
+  - создаёт временную папку в Docker-volume;
+  - пишет туда исходник (`main.js`, `main.py`, `main.cpp`, `Main.java`);
+  - запускает одноразовый контейнер `code-runner:latest` с ограничениями;
+  - собирает `stdout`/`stderr` и отправляет обратно по WebSocket.
+
+- `runner`  
+  Образ, внутри которого непосредственно выполняется код.  
+  API вызывает его через `docker run` для каждого запроса.
+
+Хранилище временных файлов:
+
+- общий Docker-volume `code-runner-data`;
+- в `api` он примонтирован как `/code-runner`;
+- в `runner` как `/workspace`;
+- для каждого запуска создаётся подпапка `/code-runner/run-XXXX`, которая в runner-контейнере видна как `/workspace/run-XXXX`.
+
+---
+
+## Запуск через Docker Compose
+
+### Требования
+
+- Docker + Docker Compose (Docker Desktop на macOS / Windows, обычный Docker на Linux).
+
+### Шаги
+
+1. Клонировать репозиторий:
+
+   ```bash
+   git clone <url_репозитория>
+   cd <папка_репозитория>
+   ```
+
+2. Собрать образы:
+
+   ```bash
+   docker compose build
+   ```
+
+3. Запустить стек:
+
+   ```bash
+   docker compose up -d
+   ```
+
+4. Открыть фронтенд:
+
+   ```text
+   http://localhost:3000
+   ```
+
+Backend (WebSocket-сервер) доступен на:
+
+```text
+ws://localhost:8080
 ```
 
 ---
 
-## Быстрый старт (Docker Compose, локально)
+## Использование
 
-Требуется Docker + Compose plugin.
+1. Открыть UI (`http://localhost:3000`).
+2. Выбрать язык в селекте:
+   - JavaScript
+   - Python
+   - C++
+   - Java
+3. Написать код в редакторе.
+4. Если код ожидает ввод:
+   - ввести строки/аргументы в поле **Input (stdin)**;
+   - каждая новая строка пойдёт как отдельный ввод (для `input()`, `std::getline` и т.п.).
+5. Нажать **Run**:
+   - код улетит на сервер;
+   - будет создан и выполнен контейнер;
+   - результат работы программы появится в блоке **Output**.
 
-```bash
-# из корня репозитория
-docker compose build --no-cache
-docker compose up -d
+---
 
-# проверить состояние
-docker compose ps
-docker compose logs -f api
-docker compose logs -f web
+## Формат WebSocket-протокола
 
+Фронтенд отправляет на backend JSON следующего вида:
+
+```json
+{
+  "language": "python",
+  "code": "s = input()\nprint('echo:', s)",
+  "stdin": "hello stdin\n"
+}
 ```
 
-Открыть в браузере: **http://localhost:3000**.
+Поля:
 
-По умолчанию фронт подключается к WebSocket бэка по `ws://localhost:8080` (см. переменную `NEXT_PUBLIC_WS_URL` в `docker-compose.yml`).
+- `language` – строка, один из:
+  - `"js"`, `"javascript"`
+  - `"py"`, `"python"`
+  - `"cpp"`, `"cplusplus"`
+  - `"java"`
+- `code` – исходный код для выполнения;
+- `stdin` – опциональная строка, которая будет отправлена в STDIN процесса внутри контейнера  
+  (если не нужна – поле можно не передавать).
+
+Ответ от сервера:
+
+- обычная текстовая строка с объединённым `stdout` и `stderr` программы.
+
+---
+
+## Реализация запуска кода
+
+Backend при выполнении задачи делает примерно следующее:
+
+1. Создаёт временную директорию в `/code-runner/run-XXXX`.
+2. Сохраняет туда файл:
+   - JS: `main.js`
+   - Python: `main.py`
+   - C++: `main.cpp`
+   - Java: `Main.java`
+3. Вызывает:
+
+   ```bash
+   docker run \
+     -i \
+     --rm \
+     --network none \
+     --memory 256m \
+     --cpus 1 \
+     --pids-limit 64 \
+     -v code-runner-data:/workspace \
+     -w /workspace/run-XXXX \
+     code-runner:latest \
+     bash -lc "<команда для языка>"
+   ```
+
+   где `<команда>`:
+
+   - JavaScript: `node main.js`
+   - Python: `python3 main.py`
+   - C++: `g++ main.cpp -O2 -std=c++17 -o main && ./main`
+   - Java: `javac Main.java && java Main`
+
+4. Ввод (`stdin`) передаётся в процесс контейнера через `child.stdin.write(...)`.
+
+После завершения:
+
+- временная папка удаляется;
+- контейнер уничтожается (флаг `--rm`).
+
+---
+
+## Добавление нового языка
+
+Чтобы добавить новый язык, нужно:
+
+1. Расширить таблицу конфигураций в `backend/src/lib/executor/executor.ts`:
+
+   ```ts
+   const SUPPORTED_LANGUAGES = new Map<string, LanguageConfig>([
+     // существующие
+     ["js", { fileName: "main.js", command: "node main.js" }],
+     ...
+     // новый язык
+     ["ruby", { fileName: "main.rb", command: "ruby main.rb" }]
+   ]);
+   ```
+
+2. Убедиться, что нужный интерпретатор/компилятор установлен в `runner/Dockerfile`.
+3. При необходимости добавить язык в селект на фронтенде.
 
 ---
 
 ## Переменные окружения
 
-### Frontend
-- `NEXT_PUBLIC_WS_URL` — адрес WebSocket бэка. Для локалки по умолчанию `ws://localhost:8080`.
+### Backend (`api`)
 
-> Переменные `NEXT_PUBLIC_*` вшиваются в фронтовый бандл на этапе **build**. Если меняете значение — пересоберите образ фронта или перезапустите `npm run dev`.
+- `PORT` – порт WebSocket-сервера (по умолчанию `8080`);
+- `HOST` – хост для WebSocket-сервера (по умолчанию `0.0.0.0`);
+- `EXEC_BASE_DIR` – базовая директория для временных файлов внутри контейнера API  
+  (по умолчанию `/code-runner`);
+- `EXEC_VOLUME` – имя Docker-volume (по умолчанию `code-runner-data`).
 
-### Backend
-- `PORT` (по умолчанию 8080)
-- `HOST` (по умолчанию `0.0.0.0`)
+### Frontend (`web`)
 
-
----
-
-## Запуск без Docker (локальная разработка)
-
-### Backend
-```bash
-cd backend
-npm ci
-npm run dev   # запускает src/server.ts (HTTP+WS на :8080)
-```
-
-### Frontend
-```bash
-cd frontend
-npm ci
-# при необходимости явно укажи адрес бэка (иначе дефолт ws://localhost:8080):
-# echo "NEXT_PUBLIC_WS_URL=ws://localhost:8080" > .env.local
-npm run dev   # http://localhost:3000
-```
+- `NEXT_PUBLIC_WS_URL` – URL WebSocket-сервера как его видит браузер  
+  (по умолчанию `ws://localhost:8080`, в docker-compose выставляется `ws://api:8080`).
 
 ---
 
-## Протокол обмена (демо)
+## Безопасность и ограничения
 
-На данный момент для простоты используется «строка-вход → строка-выход». В планах перейти на JSON-протокол:
+- Код выполняется в **отдельном контейнере**:
+  - ограничение по памяти: `256m`;
+  - ограничение по CPU: `--cpus 1`;
+  - ограничение по количеству процессов: `--pids-limit 64`.
+- **Сеть отключена**: `--network none`.
+- Контейнер удаляется после выполнения: `--rm`.
+- Все временные файлы хранятся в отдельном volume `code-runner-data` и чистятся после выполнения.
 
-```ts
-// client -> server
-type ExecRequest = {
-  type: "exec";
-  id: string;
-  language: "js";
-  code: string;
-  stdin?: string[];
-};
-
-// server -> client
-type ExecEvent =
-  | { type: "accepted"; id: string }
-  | { type: "progress"; id: string; data: string }
-  | { type: "error"; id: string; message: string }
-  | { type: "result"; id: string; exitCode: number; durationMs: number };
-```
+Этого достаточно для учебного / демонстрационного окружения. Для продакшена при необходимости можно добавить:
+- таймауты по времени выполнения;
+- более строгие лимиты ресурсов;
+- отдельный docker-daemon / worker-нод для запуска кода.
 
 ---
 
-## Скрипты
+## Структура репозитория
 
-### frontend/package.json
-```jsonc
-{
-  "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start",
-    "lint": "eslint"
-  }
-}
+```text
+.
+├── backend/          # WebSocket API (Node.js + TypeScript)
+│   ├── src/
+│   │   ├── server.ts             # WebSocket-сервер
+│   │   └── lib/executor/         # Логика запуска кода в Docker
+│   └── Dockerfile
+├── frontend/         # Next.js фронтенд с редактором кода
+│   ├── components/CodeEditor/
+│   ├── ui/
+│   └── Dockerfile
+├── runner/           # Dockerfile с рантаймами (Node, Python, G++, Java)
+├── docker-compose.yml
+└── README.md         # этот файл
 ```
-
-### backend/package.json
-```jsonc
-{
-  "scripts": {
-    "dev": "tsx src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js"
-  }
-}
-```
-
----
-
-## Как собрать фронт изолированно (без compose)
-
-```bash
-# сборка
-docker build -t code-frontend ./frontend
-
-# запуск
-docker run --rm -p 3000:3000 --name next-web code-frontend
-
-# открыть
-open http://localhost:3000   # macOS
-# или xdg-open / просто зайти в браузер
-```
-
-> Если нужен иной адрес WS прямо при сборке фронта, добавьте в Dockerfile:
-> ```dockerfile
-> ARG NEXT_PUBLIC_WS_URL
-> ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
-> ```
-> и соберите так:
-> ```bash
-> docker build -t code-frontend --build-arg NEXT_PUBLIC_WS_URL=ws://localhost:8080 ./frontend
-> ```
-
----
-
-## Важно про безопасность
-
-Бэкенд исполняет произвольный код. В демо **нет** песочницы, лимитов CPU/памяти и строгих ограничений по выводу. Не используйте это публично и не доверяйте незнакомым входным данным.
-
----
-
-## Лицензия
-MIT (или укажите свою).
