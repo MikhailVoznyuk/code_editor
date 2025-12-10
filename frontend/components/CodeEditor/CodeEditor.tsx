@@ -1,28 +1,34 @@
 'use client'
 
 import { useReducer, useState, useRef, useEffect } from "react";
+import type { State } from "@/components/CodeEditor/CodeEditor.types";
+import codeEditorReducer from "@/components/CodeEditor/reducer";
+
 
 import CodeField from "@/components/CodeEditor/CodeField/CodeField";
 import ContentField from "@/ui/ContentField/ContentField";
 import CodeFieldHeader from "@/components/CodeEditor/CodeFieldHeader/CodeFieldHeader";
 import { StateContext, DispatchContext } from "@/components/CodeEditor/contexts";
-import codeEditorReducer from "@/components/CodeEditor/reducer";
 import InputField from "@/ui/InputField/InputField";
 
 import HistorySection, {
     HistoryEntry,
 } from "@/components/CodeEditor/HistorySection/HistorySection";
 
+
+const initialState: State = {
+    language: "js",
+    codeContent: 'console.log("Hello world")',
+    inputContent: "",
+    outputContent: "",
+};
+
+
 const HISTORY_KEY = "code_editor_history_v1";
 const MIN_COL_WIDTH = 15;
 
 export default function CodeEditor() {
-    const [state, dispatch] = useReducer(codeEditorReducer, {
-        language: "js",
-        codeContent: 'console.log("Hello world")',
-        inputContent: "",
-        outputContent: "",
-    });
+    const [state, dispatch] = useReducer(codeEditorReducer, initialState);
 
     const [codeWidth, setCodeWidth] = useState(50);   // %
     const [historyWidth, setHistoryWidth] = useState(20); // %
@@ -114,9 +120,11 @@ export default function CodeEditor() {
 
         function onMove(ev: MouseEvent) {
             const dx = ev.clientX - startX;
-            const startPx = (startCode / 100) * rect.width;
+
+            const startPx = (startCode / 100) * ((rect?.width) ?? 0);
             const newPx = startPx + dx;
-            let next = (newPx / rect.width) * 100;
+
+            let next = (newPx / ((rect?.width) ?? 0)) * 100;
 
             if (next < MIN_COL_WIDTH) next = MIN_COL_WIDTH;
             if (100 - next - historyWidth < MIN_COL_WIDTH) {
@@ -145,9 +153,9 @@ export default function CodeEditor() {
 
         function onMove(ev: MouseEvent) {
             const dx = ev.clientX - startX;
-            const startPx = (startHistory / 100) * rect.width;
+            const startPx = (startHistory / 100) * ((rect?.width) ?? 0);
             const newPx = startPx - dx; // dx>0 -> история меньше, средняя колонка больше
-            let next = (newPx / rect.width) * 100;
+            let next = (newPx / ((rect?.width) ?? 0)) * 100;
 
             if (next < MIN_COL_WIDTH) next = MIN_COL_WIDTH;
             if (100 - codeWidth - next < MIN_COL_WIDTH) {
@@ -176,9 +184,10 @@ export default function CodeEditor() {
 
         function onMove(ev: MouseEvent) {
             const dy = ev.clientY - startY;
-            const startPx = (startTopHeight / 100) * rect.height;
+
+            const startPx = (startTopHeight / 100) * ((rect?.height) ?? 0);
             const newPx = startPx + dy;
-            let next = (newPx / rect.height) * 100;
+            let next = (newPx / ((rect?.height) ?? 0)) * 100;
 
             if (next < 20) next = 20;
             if (next > 80) next = 80;

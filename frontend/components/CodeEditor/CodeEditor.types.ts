@@ -10,3 +10,4 @@ export type Action =
     | { type: "setCodeContent"; codeContent: string }
     | { type: "setOutputContent"; outputContent: string }
     | { type: "setInputContent"; inputContent: string };
+
