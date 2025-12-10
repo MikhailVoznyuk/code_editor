@@ -24,6 +24,7 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
       - code-runner-data:/code-runner
     depends_on:
       - runner
