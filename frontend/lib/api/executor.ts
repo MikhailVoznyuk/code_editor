@@ -2,7 +2,11 @@
 
 import { WebSocket } from "ws";
 
-const url = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080";
+const url =
+    process.env.WS_SERVER_URL ??
+    (process.env.NODE_ENV === "production"
+        ? "ws://api:8080"
+        : "ws://localhost:8080");
 
 type ExecutionPayload = {
     language: string;
@@ -35,7 +39,8 @@ export default async function executor(
             resolve();
         });
 
-        socket.addEventListener("error", () => {
+        socket.addEventListener("error", (err) => {
+            console.error("WS error:", err);
             output = "Connection error";
             reject(new Error("WebSocket error"));
         });
